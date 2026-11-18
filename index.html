@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="交互式观察 XOR 多层感知机如何通过全批量二元交叉熵与 Adam 学会权重、偏置与非线性决策边界。" />
+<title>XOR · MLP 参数实验室</title>
+<style>
+  :root{
+    --bg:#f6f7fb; --ink:#1b2436; --muted:#69738a; --line:#e3e7f0;
+    --card:#ffffff; --indigo:#4f46e5; --indigo-d:#3b34c9; --teal:#0d9488;
+    --pos:#2563eb; --neg:#e11d48; --amber:#d97706; --good:#059669;
+    --code:#111827; --shadow:0 16px 44px rgba(30,41,90,.08);
+    --grid:rgba(79,70,229,.05);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;color:var(--ink);
+    font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.6;
+    background-color:var(--bg);
+    background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:26px 26px;
+  }
+  button,input{font:inherit} button{cursor:pointer}
+  a{color:var(--indigo)}
+  .wrap{width:min(1160px,calc(100% - 32px));margin:auto}
+
+  header{padding:58px 0 26px;position:relative;overflow:hidden}
+  .badge-top{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--indigo);font-weight:800;background:#eef0ff;border:1px solid #dcdffb;border-radius:999px;padding:6px 13px}
+  .badge-top .pulse{width:8px;height:8px;border-radius:50%;background:var(--indigo);box-shadow:0 0 0 4px rgba(79,70,229,.15)}
+  .hero{display:grid;grid-template-columns:1.5fr .9fr;gap:34px;align-items:center;margin-top:18px}
+  .hero h1{font-size:clamp(42px,7vw,80px);line-height:1.02;letter-spacing:-.05em;margin:0 0 18px}
+  .hero h1 .grad{background:linear-gradient(100deg,var(--indigo),var(--teal));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p{font-size:18px;color:var(--muted);max-width:660px;margin:0}
+  .hero .tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
+  .tag{font:600 12px ui-monospace,SFMono-Regular,Consolas,monospace;color:#475569;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px}
+  .formula{background:linear-gradient(150deg,#1b2436,#2b1f5e);color:#fff;border-radius:22px;padding:24px 24px 22px;box-shadow:var(--shadow);position:relative}
+  .formula small{display:block;color:#b9c0e0;font-size:12px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px}
+  .formula .row{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:19px;margin:8px 0;color:#eef0ff}
+  .formula .row b{color:#7ee7d3}
+  .formula .hint{margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.14);font-size:12px;color:#aab3d6}
+
+  nav{position:sticky;top:0;z-index:30;background:rgba(246,247,251,.86);backdrop-filter:blur(14px);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;gap:6px;align-items:center;min-height:58px;overflow-x:auto}
+  .tab{border:0;background:transparent;color:var(--muted);padding:9px 14px;border-radius:10px;white-space:nowrap;font-weight:600}
+  .tab:hover{color:var(--indigo);background:#eef0ff}
+  .tab.active{background:var(--indigo);color:#fff}
+  .status{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;white-space:nowrap}
+  .status .dot{width:8px;height:8px;border-radius:50%;background:var(--good);margin-right:7px;box-shadow:0 0 0 4px rgba(5,150,105,.12)}
+
+  main{padding:20px 0 60px}
+  .section{margin:30px 0 46px;scroll-margin-top:70px}
+  .section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:16px;flex-wrap:wrap}
+  .section-head .left{display:flex;align-items:center;gap:14px}
+  .section-head .num{font:800 13px ui-monospace,monospace;color:#fff;background:var(--indigo);width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none}
+  .section-head h2{font-size:27px;letter-spacing:-.02em;margin:0}
+  .section-head p{color:var(--muted);margin:0;max-width:620px;font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow)}
+
+  /* lab grid */
+  .lab{display:grid;grid-template-columns:1.3fr .85fr;min-height:560px;overflow:hidden}
+  .net-pane{padding:22px 24px;border-right:1px solid var(--line)}
+  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .seg{display:flex;padding:4px;background:#eef0f6;border-radius:12px}
+  .seg button{border:0;background:transparent;color:var(--muted);padding:7px 13px;border-radius:9px;font-weight:700;font-size:13px}
+  .seg button.active{background:#fff;color:var(--indigo);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+  .legend{margin-left:auto;display:flex;gap:14px;font-size:12px;color:var(--muted)}
+  .swatch{display:inline-block;width:18px;height:3px;border-radius:3px;vertical-align:middle;margin-right:6px}
+  .swatch.pos{background:var(--pos)} .swatch.neg{background:var(--neg)}
+  svg{display:block;width:100%;height:auto}
+  .node circle{fill:#fff;stroke:#94a0bd;stroke-width:2}
+  .node.hidden circle{fill:#e7f6f4;stroke:var(--teal)}
+  .node.output circle{fill:#eceaff;stroke:var(--indigo)}
+  .node text{fill:#27324a;font-weight:800;text-anchor:middle;font-size:15px}
+  .node .sub{font-size:11px;font-weight:500;fill:#78849c}
+  .weight-label{font:600 11px ui-monospace,monospace;fill:#475069}
+  .edge{transition:stroke-width .25s,stroke .25s}
+
+  .sample-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+  .sample{border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px;text-align:left;transition:.15s}
+  .sample:hover{border-color:#c7cdfb}
+  .sample.active{border-color:var(--indigo);box-shadow:0 0 0 3px rgba(79,70,229,.12)}
+  .sample b{display:block;font-family:ui-monospace,monospace;font-size:13px}
+  .sample .p{font-size:12px;color:var(--muted)}
+  .sample .pred{font-weight:800}
+
+  .calc-pane{padding:24px;background:linear-gradient(180deg,#f7f8fd,#f1f3fb)}
+  .calc-pane h3{font-size:19px;margin:0 0 4px}
+  .calc-pane>p{color:var(--muted);font-size:13px;margin:0 0 16px}
+  .step{border-top:1px solid #dfe3ef;padding:13px 0}
+  .step:first-of-type{border-top:0}
+  .step-label{font-size:11px;color:var(--indigo);font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+  .step code{display:block;font:13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;color:#35405c;margin-top:6px}
+  .values{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+  .pill{background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 9px;font:12px ui-monospace,monospace}
+  .result{margin-top:14px;background:var(--code);color:#fff;border-radius:15px;padding:16px 18px}
+  .result .big{font-size:34px;font-weight:850;color:#7ee7d3;line-height:1.1}
+  .result small{color:#a9b6d0;font-size:12px}
+
+  /* training */
+  .training{display:grid;grid-template-columns:1fr 1fr;overflow:hidden}
+  .control-pane{padding:26px;border-right:1px solid var(--line)}
+  .epoch-top{display:flex;justify-content:space-between;align-items:baseline}
+  .epoch-top strong{font-size:40px;letter-spacing:-.04em;color:var(--indigo)}
+  .range{width:100%;accent-color:var(--indigo);margin:16px 0 6px}
+  .range.boundary{accent-color:var(--teal)}
+  .btn-row{display:flex;gap:9px;margin-top:8px}
+  .btn{border-radius:11px;padding:10px 15px;font-weight:750;font-size:13px}
+  .btn.primary{border:0;background:var(--indigo);color:#fff}
+  .btn.primary:hover{background:var(--indigo-d)}
+  .btn.ghost{border:1px solid var(--line);background:#fff;color:var(--ink)}
+  .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:22px}
+  .metric{background:#f5f6fb;border:1px solid var(--line);border-radius:13px;padding:12px}
+  .metric small{display:block;color:var(--muted);font-size:12px}
+  .metric b{font:700 17px ui-monospace,monospace;color:var(--ink)}
+  .chart-pane{padding:22px 24px}
+  .chart-pane h3{font-size:15px;margin:0 0 4px}
+  .chart-pane .cap{font-size:12px;color:var(--muted);margin:0 0 8px}
+  #lossChart{width:100%;height:270px;display:block}
+
+  /* boundary */
+  .boundary{display:grid;grid-template-columns:1.35fr .8fr;overflow:hidden}
+  .boundary-canvas{padding:22px 24px}
+  #plot{width:100%;display:block;border-radius:12px;border:1px solid var(--line)}
+  .bd-controls{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
+  .bd-controls label{font-weight:700;font-size:13px}
+  .bd-legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:10px}
+  .bd-legend i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+  .truth-pane{padding:24px;background:linear-gradient(180deg,#f7f8fd,#f1f3fb)}
+  .truth-pane h3{font-size:17px;margin:0 0 4px}
+  .truth-pane .cap{font-size:13px;color:var(--muted);margin:0 0 16px}
+  table{width:100%;border-collapse:collapse;font:13px ui-monospace,SFMono-Regular,Consolas,monospace}
+  th,td{text-align:left;border-bottom:1px solid #e2e6f0;padding:10px 8px}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  .chip{display:inline-block;min-width:40px;text-align:center;border-radius:999px;padding:3px 9px;font-weight:800}
+  .chip.ok{color:#047857;background:#d1fae5}
+  .chip.no{color:#be123c;background:#ffe4e6}
+  .note{border-left:3px solid var(--amber);padding:6px 0 6px 14px;color:#5b6478;font-size:13px;margin-top:20px}
+
+  /* workflow */
+  .workflow{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .code-card{overflow:hidden;min-width:0}
+  .code-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:20px 22px;border-bottom:1px solid var(--line)}
+  .code-head h3{margin:0 0 3px;font-size:19px}
+  .code-head p{margin:0;color:var(--muted);font-size:13px}
+  .pill-badge{font-size:11px;border-radius:999px;padding:5px 10px;background:#eef0ff;color:var(--indigo);font-weight:800;white-space:nowrap}
+  .code-body{padding:18px 20px;background:var(--code);color:#dbe4f5;font:12.5px/1.85 ui-monospace,SFMono-Regular,Consolas,monospace;min-height:280px}
+  .cl{display:grid;grid-template-columns:24px minmax(0,1fr);gap:9px;padding:3px 5px;border-radius:7px}
+  .cl.em{background:rgba(126,231,211,.1)}
+  .cl>span:last-child{overflow-wrap:anywhere}
+  .no{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:#26324d;color:#7ee7d3;font-size:11px;font-weight:800}
+  .kw{color:#f0b772}.fn{color:#7ee7d3}.cm{color:#8fa0bd}
+  .tradeoff{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center;padding:18px 24px;margin-top:16px}
+  .tradeoff>div:first-child{text-align:right}
+  .tradeoff b{display:block;font-size:16px}
+  .tradeoff span{color:var(--muted);font-size:13px}
+  .balance{width:96px;height:6px;border-radius:6px;background:linear-gradient(90deg,var(--pos),var(--teal));position:relative}
+  .balance:after{content:"";position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid var(--ink);left:40px;top:-4px}
+
+  /* params */
+  .params{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .param-card{padding:22px 24px}
+  .param-card .top{display:flex;justify-content:space-between;align-items:center}
+  .param-card h3{margin:0;font-size:20px}
+  .matrix{font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;background:#f5f6fb;border:1px solid var(--line);border-radius:13px;padding:15px;margin-top:14px;white-space:pre;overflow:auto;color:#28324a}
+  .matrix .pos{color:var(--pos);font-weight:700}.matrix .neg{color:var(--neg);font-weight:700}
+  .diff{margin-top:14px;padding-top:13px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+  .diff b{color:var(--ink)}
+
+  /* explain */
+  .explain{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .explain .card{padding:20px;box-shadow:none}
+  .explain .num{width:28px;height:28px;border-radius:9px;background:var(--code);color:#fff;display:grid;place-items:center;font-weight:800}
+  .explain h3{font-size:16px;margin:13px 0 6px}
+  .explain p{font-size:13px;color:var(--muted);margin:0}
+
+  footer{border-top:1px solid var(--line);padding:24px 0 44px;color:var(--muted);font-size:13px;background:rgba(255,255,255,.5)}
+  footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+
+  @media(max-width:900px){
+    .hero{grid-template-columns:1fr}.formula{margin-top:6px}
+    .lab,.training,.boundary{grid-template-columns:1fr}
+    .net-pane,.control-pane,.boundary-canvas{border-right:0;border-bottom:1px solid var(--line)}
+    .params,.workflow{grid-template-columns:1fr}
+    .explain{grid-template-columns:1fr 1fr}
+    .status{display:none}
+  }
+  @media(max-width:560px){
+    .explain{grid-template-columns:1fr}
+    .sample-row{grid-template-columns:1fr 1fr}
+    .metrics{grid-template-columns:1fr}
+    .tradeoff{grid-template-columns:1fr}.tradeoff>div:first-child{text-align:left}.balance{display:none}
+  }
+  @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="wrap">
+  <span class="badge-top"><i class="pulse"></i>Interactive Learning Lab</span>
+  <div class="hero">
+    <div>
+      <h1>看见 MLP<br><span class="grad">怎样学会参数</span></h1>
+      <p>同一个 <b>2→2→1</b> 多层感知机，用真实的二元交叉熵与 Adam 训练。拖动训练轮次、切换框架、选择样本，观察权重、决策边界与预测如何一起变化。</p>
+      <div class="tags"><span class="tag">2 → 2 → 1</span><span class="tag">sigmoid</span><span class="tag">BCE + Adam</span><span class="tag">300 epochs</span><span class="tag">浏览器本地计算</span></div>
+    </div>
+    <div class="formula">
+      <small>一次前向传播</small>
+      <div class="row"><b>h</b> = σ(xW + b)</div>
+      <div class="row"><b>ŷ</b> = σ(hv + c)</div>
+      <div class="hint">XOR 线性不可分 —— 一个隐藏层即可组合出非线性边界。所有数值均由页面内 JavaScript 现场训练得出，无后端。</div>
+    </div>
+  </div>
+</header>
+
+<nav><div class="wrap">
+  <button class="tab active" data-jump="lab">网络</button>
+  <button class="tab" data-jump="training">训练</button>
+  <button class="tab" data-jump="boundary">决策边界</button>
+  <button class="tab" data-jump="workflow">写法</button>
+  <button class="tab" data-jump="params">参数</button>
+  <span class="status"><i class="dot"></i>本地实时训练</span>
+</div></nav>
+
+<main class="wrap">
+
+  <!-- 01 网络 -->
+  <section id="lab" class="section">
+    <div class="section-head">
+      <div class="left"><span class="num">01</span><h2>参数如何参与一次预测</h2></div>
+      <p>线越粗代表权重绝对值越大；蓝色为正、玫红为负。切换框架并点选样本，右侧逐步展开当前轮次下的每一步数值。</p>
+    </div>
+    <div class="card lab">
+      <div class="net-pane">
+        <div class="toolbar">
+          <div class="seg"><button id="tfBtn" class="active">TensorFlow</button><button id="torchBtn">PyTorch</button></div>
+          <div class="legend"><span><i class="swatch pos"></i>正权重</span><span><i class="swatch neg"></i>负权重</span></div>
+        </div>
+        <svg id="netSvg" viewBox="0 0 660 380" role="img" aria-label="2-2-1 神经网络权重图"></svg>
+        <div class="sample-row" id="sampleRow"></div>
+      </div>
+      <aside class="calc-pane">
+        <h3 id="calcTitle">样本 [0, 0]</h3>
+        <p id="calcSub">代入当前框架、当前训练轮次的参数</p>
+        <div id="calculation"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 02 训练 -->
+  <section id="training" class="section">
+    <div class="section-head">
+      <div class="left"><span class="num">02</span><h2>把训练过程拉开来看</h2></div>
+      <p>页面用 JavaScript 复现全批量二元交叉熵与 Adam。末位小数可能因浮点实现略有差异，但结构与分类结果一致。</p>
+    </div>
+    <div class="card training">
+      <div class="control-pane">
+        <div class="epoch-top"><span>训练轮次</span><strong id="epochVal">300</strong></div>
+        <input id="epochRange" class="range" type="range" min="0" max="300" value="300" aria-label="训练轮次" />
+        <div class="btn-row">
+          <button class="btn primary" id="playBtn">▶ 从头播放</button>
+          <button class="btn ghost" id="resetBtn">回到第 0 轮</button>
+        </div>
+        <div class="metrics">
+          <div class="metric"><small>Loss</small><b id="lossVal">—</b></div>
+          <div class="metric"><small>Accuracy</small><b id="accVal">—</b></div>
+          <div class="metric"><small>最大 |权重|</small><b id="mwVal">—</b></div>
+        </div>
+        <div class="note">损失为四样本的平均二元交叉熵；圆点标记当前轮次。播放可观察损失下降与边界成形的全过程。</div>
+      </div>
+      <div class="chart-pane">
+        <h3>损失曲线</h3>
+        <p class="cap">纵轴 = 二元交叉熵；横轴 = 训练轮次；圆点 = 当前查看的轮次。</p>
+        <canvas id="lossChart" width="560" height="270" aria-label="损失随训练轮次下降曲线"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 决策边界 -->
+  <section id="boundary" class="section">
+    <div class="section-head">
+      <div class="left"><span class="num">03</span><h2>看见分类边界成形</h2></div>
+      <p>背景颜色为模型在整个输入空间的预测概率；调节阈值观察分类区域变化。此图随上方训练轮次实时更新。</p>
+    </div>
+    <div class="card boundary">
+      <div class="boundary-canvas">
+        <canvas id="plot" width="760" height="440" aria-label="XOR 决策边界图"></canvas>
+        <div class="bd-controls">
+          <label for="threshold">分类阈值：<strong id="thVal" style="color:var(--indigo)">0.50</strong></label>
+          <input id="threshold" class="range boundary" type="range" min="0.2" max="0.8" step="0.01" value="0.5" style="width:220px;margin:0" aria-label="分类阈值" />
+          <label for="linkEpoch" style="color:var(--muted);font-weight:500"><input type="checkbox" id="linkEpoch" checked /> 跟随训练轮次</label>
+        </div>
+        <div class="bd-legend"><span><i style="background:var(--pos)"></i>类别 0 概率高</span><span><i style="background:var(--neg)"></i>类别 1 概率高</span></div>
+      </div>
+      <aside class="truth-pane">
+        <h3>四组样本的预测</h3>
+        <p class="cap" id="truthCap">当前轮次下的分类结果</p>
+        <table><thead><tr><th>输入</th><th>目标</th><th>P(1)</th><th>判定</th></tr></thead><tbody id="truthBody"></tbody></table>
+        <div class="note">勾选“跟随训练轮次”时，边界与真值表随训练滑块更新；取消后固定展示第 300 轮（训练完成）的结果。</div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 04 写法 -->
+  <section id="workflow" class="section">
+    <div class="section-head">
+      <div class="left"><span class="num">04</span><h2>同一个 MLP，两种常见写法</h2></div>
+      <p>能力并无硬边界。这里比较的是初学与日常项目中最典型的两种风格：显式训练循环 vs 框架标准流程。</p>
+    </div>
+    <div class="workflow">
+      <article class="card code-card">
+        <div class="code-head"><div><h3>PyTorch · 显式训练循环</h3><p>每一步都摆在眼前，便于理解与逐步调试</p></div><span class="pill-badge">容易观察每一步</span></div>
+        <div class="code-body">
+          <div class="cl em"><span class="no">1</span><span>optimizer.<span class="fn">zero_grad</span>() <span class="cm"># 清空旧梯度</span></span></div>
+          <div class="cl em"><span class="no">2</span><span>hidden = torch.<span class="fn">sigmoid</span>(x @ W + b)</span></div>
+          <div class="cl"><span></span><span>logits = hidden @ v + c</span></div>
+          <div class="cl em"><span class="no">3</span><span>loss = F.<span class="fn">binary_cross_entropy_with_logits</span>(logits, y)</span></div>
+          <div class="cl em"><span class="no">4</span><span>loss.<span class="fn">backward</span>() <span class="cm"># 梯度写入 .grad</span></span></div>
+          <div class="cl em"><span class="no">5</span><span>optimizer.<span class="fn">step</span>() <span class="cm"># 更新参数</span></span></div>
+        </div>
+      </article>
+      <article class="card code-card">
+        <div class="code-head"><div><h3>TensorFlow / Keras · 标准流程</h3><p>把常规训练交给框架，快速得到模型</p></div><span class="pill-badge">快速搭建</span></div>
+        <div class="code-body">
+          <div class="cl"><span class="no">1</span><span>model = keras.<span class="fn">Sequential</span>([</span></div>
+          <div class="cl"><span></span><span>&nbsp; layers.<span class="fn">Dense</span>(2, activation=<span class="kw">"sigmoid"</span>),</span></div>
+          <div class="cl"><span></span><span>&nbsp; layers.<span class="fn">Dense</span>(1)</span></div>
+          <div class="cl"><span></span><span>])</span></div>
+          <div class="cl em"><span class="no">2</span><span>model.<span class="fn">compile</span>(optimizer=<span class="kw">"adam"</span>, loss=<span class="kw">"bce"</span>)</span></div>
+          <div class="cl em"><span class="no">3</span><span>model.<span class="fn">fit</span>(x, y, epochs=<span class="kw">300</span>)</span></div>
+        </div>
+      </article>
+    </div>
+    <div class="card tradeoff">
+      <div><b>PyTorch 常见风格</b><span>更显式 · 更便于逐步观察</span></div>
+      <i class="balance"></i>
+      <div><b>TensorFlow / Keras 常见风格</b><span>更封装 · 更快搭建标准模型</span></div>
+    </div>
+  </section>
+
+  <!-- 05 参数 -->
+  <section id="params" class="section">
+    <div class="section-head">
+      <div class="left"><span class="num">05</span><h2>两次真实运行的训练结果</h2></div>
+      <p>数值并非逐位相同，但结构、符号与大小高度一致，最终都把 XOR 分类为 [0, 1, 1, 0]。</p>
+    </div>
+    <div class="params">
+      <article class="card param-card"><div class="top"><h3>TensorFlow</h3><span class="pill-badge">第 300 轮</span></div><div class="matrix" id="matrixTF"></div><div class="diff">最终预测：<b>[0, 1, 1, 0]</b></div></article>
+      <article class="card param-card"><div class="top"><h3>PyTorch</h3><span class="pill-badge">第 300 轮</span></div><div class="matrix" id="matrixPT"></div><div class="diff" id="diffText"></div></article>
+    </div>
+  </section>
+
+  <!-- 06 四步骤 -->
+  <section class="section">
+    <div class="section-head"><div class="left"><span class="num">06</span><h2>一轮训练里发生了什么</h2></div></div>
+    <div class="explain">
+      <article class="card"><div class="num">1</div><h3>前向计算</h3><p>当前参数把四个输入映射成四个预测概率。</p></article>
+      <article class="card"><div class="num">2</div><h3>计算损失</h3><p>二元交叉熵衡量预测与目标之间的距离。</p></article>
+      <article class="card"><div class="num">3</div><h3>反向传播</h3><p>链式法则求出每个权重对损失的梯度。</p></article>
+      <article class="card"><div class="num">4</div><h3>Adam 更新</h3><p>结合梯度的一阶、二阶动量调整所有参数。</p></article>
+    </div>
+  </section>
+
+</main>
+<footer><div class="wrap"><span>XOR · MLP 参数实验室 · 单文件静态网站，可直接部署到 GitHub Pages</span><span>所有数值由浏览器现场训练得出</span></div></footer>
+
+<script>
+(function(){
+  "use strict";
+  const SAMPLES=[[0,0,0],[0,1,1],[1,0,1],[1,1,0]];
+  const EPOCHS=300;
+  const $=id=>document.getElementById(id);
+  const sig=z=>1/(1+Math.exp(-z));
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const f=(n,d=4)=>Number(n).toFixed(d);
+
+  function forward(p,x1,x2){
+    const z1=x1*p.W[0][0]+x2*p.W[1][0]+p.b[0];
+    const z2=x1*p.W[0][1]+x2*p.W[1][1]+p.b[1];
+    const h1=sig(z1),h2=sig(z2);
+    const logit=h1*p.v[0]+h2*p.v[1]+p.c;
+    const prob=sig(logit);
+    return {z1,z2,h1,h2,logit,prob,pred:prob>=0.5?1:0};
+  }
+
+  function makeInit(mode){
+    if(mode===1) return {W:[[2.01,-1.99],[-2.02,1.98]],b:[-1.01,-0.99],v:[3.01,2.99],c:-2.51};
+    return {W:[[2,-2],[-2,2]],b:[-1,-1],v:[3,3],c:-2.5};
+  }
+
+  function train(mode,eps){
+    const p=makeInit(mode);
+    const keys=['W00','W01','W10','W11','b0','b1','v0','v1','c'];
+    const m={},q={}; keys.forEach(k=>{m[k]=0;q[k]=0;});
+    const hist=[];
+    const LR=0.03,B1=0.9,B2=0.999,N=SAMPLES.length;
+    for(let t=0;t<=EPOCHS;t++){
+      let loss=0,correct=0; const g={}; keys.forEach(k=>g[k]=0);
+      for(const [x1,x2,y] of SAMPLES){
+        const r=forward(p,x1,x2),d=r.prob-y;
+        loss+=-(y*Math.log(r.prob+1e-14)+(1-y)*Math.log(1-r.prob+1e-14));
+        if(r.pred===y)correct++;
+        g.v0+=r.h1*d/N; g.v1+=r.h2*d/N; g.c+=d/N;
+        const dz1=d*p.v[0]*r.h1*(1-r.h1),dz2=d*p.v[1]*r.h2*(1-r.h2);
+        g.W00+=x1*dz1/N; g.W10+=x2*dz1/N; g.b0+=dz1/N;
+        g.W01+=x1*dz2/N; g.W11+=x2*dz2/N; g.b1+=dz2/N;
+      }
+      const snap={W:p.W.map(r=>r.slice()),b:p.b.slice(),v:p.v.slice(),c:p.c};
+      hist.push({epoch:t,loss:loss/N,acc:correct/N,p:snap});
+      if(t===EPOCHS)break;
+      for(const k of keys){
+        m[k]=B1*m[k]+(1-B1)*g[k];
+        q[k]=B2*q[k]+(1-B2)*g[k]*g[k];
+        const mh=m[k]/(1-Math.pow(B1,t+1)),qh=q[k]/(1-Math.pow(B2,t+1));
+        const step=LR*mh/(Math.sqrt(qh)+eps);
+        if(k==='W00')p.W[0][0]-=step; else if(k==='W01')p.W[0][1]-=step;
+        else if(k==='W10')p.W[1][0]-=step; else if(k==='W11')p.W[1][1]-=step;
+        else if(k==='b0')p.b[0]-=step; else if(k==='b1')p.b[1]-=step;
+        else if(k==='v0')p.v[0]-=step; else if(k==='v1')p.v[1]-=step;
+        else if(k==='c')p.c-=step;
+      }
+    }
+    return hist;
+  }
+
+  const HIST={tensorflow:train(0,1e-7),pytorch:train(1,1e-8)};
+  let framework='tensorflow',selected=0,playing=null;
+
+  function curEpoch(){ return clamp(parseInt($('epochRange').value,10)||0,0,EPOCHS); }
+  function activeEpoch(){
+    if($('linkEpoch').checked) return curEpoch();
+    return EPOCHS;
+  }
+  function currentP(epoch){ return HIST[framework][epoch].p; }
+  function maxWeight(p){ return Math.max(...p.W.flat().map(Math.abs),...p.v.map(Math.abs)); }
+
+  function edge(x1,y1,x2,y2,w){
+    const color=w>=0?'var(--pos)':'var(--neg)';
+    const width=1.3+Math.min(Math.abs(w),9)*0.62;
+    const mx=(x1+x2)/2,my=(y1+y2)/2;
+    return '<line class="edge" x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+color+'" stroke-width="'+width.toFixed(2)+'" opacity=".82"/>'
+      + '<text class="weight-label" x="'+(mx)+'" y="'+(my-5)+'">'+(w>=0?'+':'')+f(w,2)+'</text>';
+  }
+  function node(x,y,label,sub,cls){
+    return '<g class="node '+cls+'"><circle cx="'+x+'" cy="'+y+'" r="30"/><text x="'+x+'" y="'+(y+1)+'">'+label+'</text><text class="sub" x="'+x+'" y="'+(y+17)+'">'+sub+'</text></g>';
+  }
+  function renderNetwork(epoch){
+    const p=currentP(epoch),s=SAMPLES[selected],r=forward(p,s[0],s[1]);
+    const x1=90,x2=90,h1=335,h2=335,out=590;
+    const parts=[
+      edge(x1,120,h1,95,p.W[0][0]), edge(x1,120,h2,285,p.W[0][1]),
+      edge(x2,260,h1,95,p.W[1][0]), edge(x2,260,h2,285,p.W[1][1]),
+      edge(h1,95,out,190,p.v[0]), edge(h2,285,out,190,p.v[1])
+    ];
+    parts.push(node(x1,120,'x₁',''+s[0],'input'));
+    parts.push(node(x2,260,'x₂',''+s[1],'input'));
+    parts.push(node(h1,95,'h₁',f(r.h1,3),'hidden'));
+    parts.push(node(h2,285,'h₂',f(r.h2,3),'hidden'));
+    parts.push(node(out,190,'ŷ',f(r.prob,3),'output'));
+    parts.push('<text x="20" y="26" fill="#8b95ab" font-size="12" font-family="ui-monospace,monospace">输入层</text>');
+    parts.push('<text x="300" y="26" fill="#8b95ab" font-size="12" font-family="ui-monospace,monospace">隐藏层 · sigmoid</text>');
+    parts.push('<text x="556" y="26" fill="#8b95ab" font-size="12" font-family="ui-monospace,monospace">输出</text>');
+    $('netSvg').innerHTML=parts.join('');
+  }
+
+  function renderSamples(epoch){
+    const p=currentP(epoch);
+    $('sampleRow').innerHTML=SAMPLES.map((s,i)=>{
+      const r=forward(p,s[0],s[1]);
+      const ok=s[2]===1?'#e11d48':'#2563eb';
+      return '<button class="sample '+(i===selected?'active':'')+'" data-i="'+i+'"><b>['+s[0]+', '+s[1]+']</b>'
+        + '<span class="p">P(1)=<span class="pred" style="color:'+ok+'">'+f(r.prob,3)+'</span></span></button>';
+    }).join('');
+    $('sampleRow').querySelectorAll('button').forEach(b=>b.onclick=()=>{ selected=+b.dataset.i; renderAll(); });
+  }
+
+  function renderCalc(epoch){
+    const p=currentP(epoch),s=SAMPLES[selected],r=forward(p,s[0],s[1]);
+    const pname=framework==='tensorflow'?'TensorFlow':'PyTorch';
+    $('calcTitle').textContent='样本 ['+s[0]+', '+s[1]+'] · '+pname;
+    $('calcSub').textContent='第 '+epoch+' 轮参数 · 目标 = '+s[2];
+    const ok=r.pred===s[2];
+    $('calculation').innerHTML=
+      '<div class="step"><div class="step-label">01 · 隐藏层线性组合</div>'
+      +'<code>z₁ = '+s[0]+'×'+f(p.W[0][0],2)+' + '+s[1]+'×('+f(p.W[1][0],2)+') + ('+f(p.b[0],2)+')</code>'
+      +'<code>z₂ = '+s[0]+'×('+f(p.W[0][1],2)+') + '+s[1]+'×'+f(p.W[1][1],2)+' + ('+f(p.b[1],2)+')</code>'
+      +'<div class="values"><span class="pill">z₁='+f(r.z1)+'</span><span class="pill">z₂='+f(r.z2)+'</span></div></div>'
+      +'<div class="step"><div class="step-label">02 · sigmoid 激活</div><code>h = σ(z)</code>'
+      +'<div class="values"><span class="pill">h₁='+f(r.h1)+'</span><span class="pill">h₂='+f(r.h2)+'</span></div></div>'
+      +'<div class="step"><div class="step-label">03 · 输出层</div><code>logit = h₁×'+f(p.v[0],2)+' + h₂×'+f(p.v[1],2)+' + ('+f(p.c,2)+')</code>'
+      +'<div class="values"><span class="pill">logit='+f(r.logit)+'</span></div></div>'
+      +'<div class="result"><small>预测为类别 1 的概率</small><div class="big">'+(r.prob*100).toFixed(2)+'%</div>'
+      +'<small>阈值 0.5 → 判定 '+r.pred+' · 正确类别 '+s[2]+' · '+(ok?'✓ 分类正确':'✕ 分类错误')+'</small></div>';
+  }
+
+  function renderMetrics(epoch){
+    const h=HIST[framework][epoch];
+    $('lossVal').textContent=f(h.loss,5);
+    $('accVal').textContent=Math.round(h.acc*100)+'%';
+    $('mwVal').textContent=f(maxWeight(h.p),2);
+    $('epochVal').textContent=epoch;
+  }
+
+  function drawLossChart(){
+    const cv=$('lossChart'),ctx=cv.getContext('2d');
+    const W=cv.clientWidth||560,H=cv.clientHeight||270,dpr=window.devicePixelRatio||1;
+    cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+    const pad={l:44,r:14,t:14,b:30},pw=W-pad.l-pad.r,ph=H-pad.t-pad.b;
+    const ymax=0.62;
+    ctx.strokeStyle='#e8ebf3';ctx.lineWidth=1;ctx.fillStyle='#9aa3b8';ctx.font='11px ui-monospace,monospace';
+    for(let i=0;i<=4;i++){
+      const y=pad.t+ph*i/4, val=(ymax*(1-i/4)).toFixed(2);
+      ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+      ctx.fillText(val,6,y+4);
+    }
+    ctx.fillText('0',pad.l-2,H-8);ctx.fillText('300',W-pad.r-18,H-8);
+    const data=HIST[framework];
+    const px=e=>pad.l+pw*e/EPOCHS, py=v=>pad.t+ph*(1-clamp(v,0,ymax)/ymax);
+    ctx.strokeStyle='#4f46e5';ctx.lineWidth=2.6;ctx.beginPath();
+    data.forEach((d,i)=>{const x=px(d.epoch),y=py(d.loss);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+    ctx.stroke();
+    const e=curEpoch(),d=data[e],x=px(e),y=py(d.loss);
+    ctx.fillStyle='#fff';ctx.strokeStyle='#4f46e5';ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fill();ctx.stroke();
+  }
+
+  function drawBoundary(){
+    const cv=$('plot'),ctx=cv.getContext('2d');
+    const W=cv.width,H=cv.height,dpr=window.devicePixelRatio||1;
+    const cssW=cv.clientWidth||W,cssH=cssW*H/W;
+    cv.style.height=cssH+'px';
+    cv.width=cssW*dpr;cv.height=cssH*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,cssW,cssH);
+    const pad=46,pw=cssW-pad*2,ph=cssH-pad*2;
+    const p=currentP(activeEpoch());
+    const th=parseFloat($('threshold').value);
+    const cell=6;
+    for(let py=0;py<ph;py+=cell){
+      for(let px=0;px<pw;px+=cell){
+        const x=px/pw,y=1-py/ph;
+        const pr=forward(p,x,y).prob;
+        const isOne=pr>=th;
+        const strength=isOne?(pr-th)/(1-th+1e-9):(th-pr)/(th+1e-9);
+        const a=0.10+0.55*clamp(strength,0,1);
+        ctx.fillStyle=isOne?'rgba(225,29,72,'+a.toFixed(3)+')':'rgba(37,99,235,'+a.toFixed(3)+')';
+        ctx.fillRect(pad+px,pad+py,cell+1,cell+1);
+      }
+    }
+    ctx.strokeStyle='#9aa3b8';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(pad,pad);ctx.lineTo(pad,cssH-pad);ctx.lineTo(cssW-pad,cssH-pad);ctx.stroke();
+    ctx.fillStyle='#7c869c';ctx.font='12px ui-monospace,monospace';
+    ctx.fillText('x₂',12,pad+4);ctx.fillText('x₁',cssW-pad-8,cssH-12);
+    ctx.fillText('0',pad-14,cssH-pad+16);ctx.fillText('1',cssW-pad+3,cssH-pad+16);
+    ctx.fillText('1',pad-14,pad+4);
+    SAMPLES.forEach((s,i)=>{
+      const cx=pad+s[0]*pw,cy=pad+(1-s[1])*ph;
+      ctx.beginPath();ctx.arc(cx,cy,13,0,Math.PI*2);
+      ctx.fillStyle=s[2]?'#e11d48':'#2563eb';ctx.fill();
+      ctx.lineWidth=3;ctx.strokeStyle='#fff';ctx.stroke();
+      if(i===selected){ctx.beginPath();ctx.arc(cx,cy,19,0,Math.PI*2);ctx.strokeStyle='#4f46e5';ctx.lineWidth=2;ctx.stroke();}
+      ctx.fillStyle='#fff';ctx.font='bold 12px ui-monospace,monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(''+s[2],cx,cy);
+      ctx.textAlign='left';ctx.textBaseline='alphabetic';
+    });
+  }
+
+  function renderTruth(){
+    const p=currentP(activeEpoch());
+    const th=parseFloat($('threshold').value);
+    $('truthCap').textContent = $('linkEpoch').checked ? ('第 '+curEpoch()+' 轮 · 阈值 '+th.toFixed(2)) : ('第 300 轮 · 阈值 '+th.toFixed(2));
+    $('truthBody').innerHTML=SAMPLES.map(s=>{
+      const r=forward(p,s[0],s[1]);
+      const pred=r.prob>=th?1:0,ok=pred===s[2];
+      return '<tr><td>['+s[0]+', '+s[1]+']</td><td>'+s[2]+'</td><td>'+f(r.prob,3)+'</td><td><span class="chip '+(ok?'ok':'no')+'">'+(ok?'正确':'错误')+'</span></td></tr>';
+    }).join('');
+  }
+
+  function renderMatrices(){
+    const a=HIST.tensorflow[EPOCHS].p,b=HIST.pytorch[EPOCHS].p;
+    const mat=p=>'W = [[ '+f(p.W[0][0],3)+', '+f(p.W[0][1],3)+'],\n'
+      +'     [ '+f(p.W[1][0],3)+', '+f(p.W[1][1],3)+']]\n\n'
+      +'b = ['+f(p.b[0],3)+', '+f(p.b[1],3)+']\n'
+      +'v = ['+f(p.v[0],3)+', '+f(p.v[1],3)+']\n'
+      +'c = '+f(p.c,3);
+    $('matrixTF').textContent=mat(a);
+    $('matrixPT').textContent=mat(b);
+    let maxd=0;
+    ['W00','W01','W10','W11'].forEach((k,i)=>{
+      const ar=[a.W[0][0],a.W[0][1],a.W[1][0],a.W[1][1]],br=[b.W[0][0],b.W[0][1],b.W[1][0],b.W[1][1]];
+      maxd=Math.max(maxd,Math.abs(ar[i]-br[i]));
+    });
+    maxd=Math.max(maxd,Math.abs(a.c-b.c),...a.b.map((v,i)=>Math.abs(v-b.b[i])),...a.v.map((v,i)=>Math.abs(v-b.v[i])));
+    $('diffText').innerHTML='最大参数差约 <b>'+f(maxd,4)+'</b>，不改变分类结果。';
+  }
+
+  function renderAll(){
+    const e=curEpoch();
+    document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('active',
+      (framework==='tensorflow'&&b.id==='tfBtn')||(framework==='pytorch'&&b.id==='torchBtn')));
+    renderNetwork(e);renderSamples(e);renderCalc(e);renderMetrics(e);
+    drawLossChart();drawBoundary();renderTruth();
+  }
+
+  $('tfBtn').onclick=()=>{framework='tensorflow';renderAll();};
+  $('torchBtn').onclick=()=>{framework='pytorch';renderAll();};
+  $('epochRange').oninput=renderAll;
+  $('threshold').oninput=()=>{
+    $('thVal').textContent=parseFloat($('threshold').value).toFixed(2);
+    drawBoundary();renderTruth();
+  };
+  $('linkEpoch').onchange=()=>{drawBoundary();renderTruth();};
+  $('resetBtn').onclick=()=>{stop();$('epochRange').value=0;renderAll();};
+  function stop(){ if(playing){clearInterval(playing);playing=null;} }
+  $('playBtn').onclick=()=>{
+    stop();$('epochRange').value=0;renderAll();
+    playing=setInterval(()=>{
+      let n=parseInt($('epochRange').value,10)+3;
+      if(n>=EPOCHS){n=EPOCHS;stop();}
+      $('epochRange').value=n;renderAll();
+    },32);
+  };
+
+  document.querySelectorAll('[data-jump]').forEach(b=>{
+    b.onclick=()=>{
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      b.classList.add('active');
+      $(b.dataset.jump).scrollIntoView({behavior:'smooth',block:'start'});
+    };
+  });
+
+  let rt;
+  window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{drawLossChart();drawBoundary();},120);});
+
+  renderMatrices();
+  renderAll();
+})();
+</script>
+</body>
+</html>
